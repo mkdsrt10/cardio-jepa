@@ -9,9 +9,8 @@ def compute_integrated_gradients(model, x, target_class_idx, steps=20, device=No
     device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
     model.eval()
     
-    # 1. Expand input to batch of size 1 and move to device
-    x = x.unsqueeze(0).to(device) # [1, 12, Length]
-    x.requires_grad = True
+    # 1. Expand input to batch of size 1, move to device, and detach
+    x = x.unsqueeze(0).to(device).clone().detach() # [1, 12, Length]
     
     # 2. Define baseline (all zeros, representing standard flatline baseline)
     baseline = torch.zeros_like(x)
@@ -25,7 +24,7 @@ def compute_integrated_gradients(model, x, target_class_idx, steps=20, device=No
         
     # Stack along batch dimension
     interpolated_inputs = torch.cat(interpolated_inputs, dim=0) # [steps, 12, Length]
-    interpolated_inputs.requires_grad = True
+    interpolated_inputs = interpolated_inputs.clone().detach().requires_grad_(True)
     
     # 4. Compute model forward pass and gradients for all steps
     logits = model(interpolated_inputs) # [steps, num_classes]
@@ -33,11 +32,8 @@ def compute_integrated_gradients(model, x, target_class_idx, steps=20, device=No
     # Target class logits
     target_logits = logits[:, target_class_idx]
     
-    # Backward pass to get gradients
-    target_logits.sum().backward()
-    
-    # Retrieve gradients
-    grads = interpolated_inputs.grad # [steps, 12, Length]
+    # Use torch.autograd.grad to compute gradients of the sum of target logits with respect to interpolated inputs
+    grads = torch.autograd.grad(target_logits.sum(), interpolated_inputs)[0] # [steps, 12, Length]
     
     # 5. Integrate (average) the gradients and scale by (input - baseline)
     avg_grads = torch.mean(grads, dim=0) # [12, Length]
