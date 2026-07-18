@@ -147,11 +147,33 @@ def evaluate_pretraining(model, dataloader, sigreg_weight, device):
         
     all_representations = torch.cat(all_representations, dim=0)
     
-    # Calculate Effective Rank (high dimensional check)
+    # Calculate Effective Rank (dimensional collapse check)
     eff_rank = calculate_effective_rank(all_representations)
     
+    # Calculate feature_std (variance collapse check)
+    feature_std = torch.std(all_representations, dim=0).mean().item()
+    
+    # Calculate pairwise cosine similarity (embedding crowding check)
+    # We sub-sample to 1024 to speed up matrix multiplication (O(B^2 * D))
+    sub_reps = all_representations
+    if sub_reps.size(0) > 1024:
+        sub_reps = sub_reps[:1024]
+        
+    norms = torch.linalg.norm(sub_reps, dim=1, keepdim=True)
+    norms = torch.clamp(norms, min=1e-5)
+    norm_reps = sub_reps / norms
+    S = norm_reps @ norm_reps.T
+    B = norm_reps.size(0)
+    if B > 1:
+        pairwise_cosine = (S.sum() - B) / (B * (B - 1))
+        pairwise_cosine = pairwise_cosine.item()
+        if np.isnan(pairwise_cosine) or np.isinf(pairwise_cosine):
+            pairwise_cosine = 0.0
+    else:
+        pairwise_cosine = 1.0
+    
     n = len(dataloader.dataset)
-    return total_loss / n, total_mse / n, total_sig / n, eff_rank
+    return total_loss / n, total_mse / n, total_sig / n, eff_rank, feature_std, pairwise_cosine
 
 def main():
     parser = argparse.ArgumentParser(description="ECG-JEPA Self-Supervised Pretraining")
@@ -231,6 +253,7 @@ def main():
     
     # 4. Pretraining Loop
     best_val_loss = float("inf")
+    metrics_history = []
     
     for epoch in range(1, args.epochs + 1):
         # Train
@@ -238,7 +261,7 @@ def main():
             model, train_loader, optimizer, args.sigreg_weight, device, scaler
         )
         # Val
-        val_loss, val_mse, val_sig, eff_rank = evaluate_pretraining(
+        val_loss, val_mse, val_sig, eff_rank, feature_std, pairwise_cosine = evaluate_pretraining(
             model, val_loader, args.sigreg_weight, device
         )
         
@@ -248,7 +271,20 @@ def main():
         print(f"Epoch {epoch:02d}/{args.epochs:02d} | "
               f"Train Loss: {train_loss:.4f} (MSE: {train_mse:.4f}, SIG: {train_sig:.4f}) | "
               f"Val Loss: {val_loss:.4f} (MSE: {val_mse:.4f}, SIG: {val_sig:.4f}) | "
-              f"Effective Rank: {eff_rank:.1f}")
+              f"Rank: {eff_rank:.1f} | Std: {feature_std:.4f} | Cos: {pairwise_cosine:.4f}")
+              
+        metrics_history.append({
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "train_mse": train_mse,
+            "train_sig": train_sig,
+            "val_loss": val_loss,
+            "val_mse": val_mse,
+            "val_sig": val_sig,
+            "effective_rank": eff_rank,
+            "feature_std": feature_std,
+            "pairwise_cosine": pairwise_cosine
+        })
               
         # Save best model checkpoint
         if val_loss < best_val_loss:
@@ -259,11 +295,22 @@ def main():
                 "encoder_state_dict": context_encoder.state_dict(),
                 "latent_dim": args.latent_dim,
                 "effective_rank": eff_rank,
+                "feature_std": feature_std,
+                "pairwise_cosine": pairwise_cosine,
                 "val_loss": val_loss
             }, args.save_path)
             
+    # Save loss history to CSV
+    history_csv = args.save_path.replace(".pt", "_history.csv")
+    import csv
+    with open(history_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["epoch", "train_loss", "train_mse", "train_sig", "val_loss", "val_mse", "val_sig", "effective_rank", "feature_std", "pairwise_cosine"])
+        writer.writeheader()
+        writer.writerows(metrics_history)
+        
     print(f"\nPretraining successfully completed!")
     print(f"Best ECG-JEPA Context Encoder saved to: {args.save_path}")
+    print(f"Pretraining metrics history saved to: {history_csv}")
 
 if __name__ == "__main__":
     main()

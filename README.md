@@ -1,8 +1,8 @@
-# 🫀 Self-Supervised ECG Representation & Triage System
+# 🫀 CardioRep: A Self-Supervised ECG Representation Learning and Clinical Decision Support Platform
 
-An advanced clinical decision support system that leverages Joint Embedding Predictive Architecture (JEPA) style self-supervised learning to learn highly robust, reusable representations of 12-lead Electrocardiograms (ECGs). 
+An advanced clinical decision support platform that leverages Joint Embedding Predictive Architecture (JEPA) style self-supervised learning to extract highly robust, reusable representations of 12-lead Electrocardiograms (ECGs).
 
-Instead of treating ECGs as generic images or building brittle classifiers, this system models temporal and lead-based relationships from raw waveforms to provide robust abnormality screening, similar-case retrieval, and interpretable clinical decision support.
+Instead of treating ECGs as generic images or building brittle classifiers, CardioRep models temporal and lead-based relationships from raw waveforms to provide robust abnormality screening, similar-case retrieval, and interpretable clinical decision support.
 
 ---
 
@@ -18,7 +18,7 @@ Instead of treating ECGs as generic images or building brittle classifiers, this
   [ Signal Quality Check ] ──────► High noise / Lead detachment alert
            │
            ▼
-  [ ECG-JEPA 1D Encoder ] ───────► Patient ECG Embedding (Latent Space)
+  [ CardioRep 1D Encoder ] ──────► Patient ECG Embedding (Latent Space)
            │
            ├───► [ Abnormality Triage Classifier ] ────► Normal vs. Abnormal + Superclasses
            │
@@ -31,10 +31,22 @@ Instead of treating ECGs as generic images or building brittle classifiers, this
 ```
 
 ### 🧠 The JEPA-style Self-Supervised Objective
-In real-world settings, ECG waveforms are mostly unlabelled. The self-supervised objective teaches the model physical cardiac properties by predicting:
+In real-world settings, ECG waveforms are mostly unlabelled. CardioRep teaches the model physical cardiac properties by predicting:
 - **Masked Time Intervals**: Predicting the representation of a masked 2-second rhythm segment using the surrounding context.
-- **Masked Leads**: Predicting representations of missing leads (such as chest leads $V_1$-$V_6$) from the active limb leads ($I, II, III$).
-- **Noise & Drift Invariance**: Forcing representation alignment between clean and synthetically distorted views (e.g., adding low-frequency breathing baseline wander or high-frequency muscle artifacts).
+- **Masked Leads**: Predicting representations of missing chest leads ($V_1$-$V_6$) from active limb leads ($I, II, III$).
+- **Noise & Drift Invariance**: Forcing representation alignment between clean and synthetically distorted views.
+
+---
+
+## 🔬 The Holy Trinity of Representation Diagnostics
+
+During pretraining, CardioRep monitors three distinct mathematical metrics to gauge embedding space health and prevent all modes of collapse:
+
+| Metric | Diagnostics Target | Failure Mode Addressed | Actionable Threshold |
+| :--- | :--- | :--- | :---: |
+| **Effective Rank** | Dimensional Collapse | Representation content collapsing into a low-dimensional subspace. | $\ge 60.0$ |
+| **Feature Std (`feature_std`)** | Variance Collapse | Individual feature dimensions collapsing to zero variance across the batch. | $\ge 0.5$ |
+| **Pairwise Cosine (`pairwise_cosine`)** | Embedding Crowding | All samples clumping into a single dense direction (point collapse). | $\le 0.1$ |
 
 ---
 
@@ -69,12 +81,3 @@ ecg-jepa/
 ├── VALUE_PROPOSITION.md     # Real-world clinical benefit and self-supervised efficiency
 └── README.md                # This file
 ```
-
----
-
-## ⚡ Key Engineering Playbook Alignment
-To maximize GPU training speeds and ensure stable representation convergence, this repository is built in strict adherence to the project's **High-Performance SSL Playbook**:
-1. **Memory-Mapped Data Pipelines**: Keeps waveforms in Arrow/Parquet format to bypass slow CPU-bound serialization locks.
-2. **Optimal Dataloader Threading**: Employs `num_workers=4`, `pin_memory=True`, and `persistent_workers=True` to fully saturate the GPU.
-3. **Preventing Representation Collapse**: Uses signature regularization (`SIGReg` loss weight $\lambda = 20.0$) to guarantee high representation dimensions ($\text{Effective Rank} \ge 60$) and avoid point/dimensional collapse.
-4. **Stable FP32 Diagnostics**: Performs singular value decomposition (SVD) and Effective Rank computations exclusively in `FP32` on CPU subsets of size $\le 1024$ to preserve numerical stability and eliminate calculation stalls.
