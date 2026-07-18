@@ -19,3 +19,6 @@ venv/
 venv.bak/
 .pytest_cache/
 .ipynb_checkpoints/
+
+# Log files
+*.log
