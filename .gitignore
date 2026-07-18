@@ -1,0 +1,21 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch checkpoints / weights
+checkpoints/
+*.pt
+*.pth
+
+# Dataset cache and raw data
+data/
+
+# Environment / local configs
+.env
+.venv/
+env/
+venv/
+venv.bak/
+.pytest_cache/
+.ipynb_checkpoints/
